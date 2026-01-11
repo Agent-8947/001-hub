@@ -120,31 +120,82 @@ const AdminPanel: FC = () => {
 
   const handleImportProject = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      console.warn('Import: No file selected');
+      return;
+    }
+
+    // Проверка размера файла (максимум 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('File is too large. Maximum size is 5MB.');
+      e.target.value = '';
+      return;
+    }
+
+    // Проверка типа файла
+    if (!file.name.endsWith('.json')) {
+      alert('Please select a valid JSON file (.json extension required).');
+      e.target.value = '';
+      return;
+    }
 
     const reader = new FileReader();
+
+    reader.onerror = () => {
+      console.error('Import Error: FileReader failed', reader.error);
+      alert('Failed to read the file. Please try again.');
+      e.target.value = '';
+    };
+
     reader.onload = (event) => {
       try {
-        const importedConfig = JSON.parse(event.target?.result as string) as WidgetConfig;
-        if (!importedConfig.id || !importedConfig.name || !Array.isArray(importedConfig.channels)) {
-          throw new Error('Invalid project format');
+        const content = event.target?.result as string;
+
+        if (!content || content.trim().length === 0) {
+          throw new Error('File is empty');
         }
-        const newItem = {
+
+        console.log('Import: Parsing JSON content...');
+        const importedConfig = JSON.parse(content) as WidgetConfig;
+
+        // Валидация обязательных полей
+        if (!importedConfig.id) {
+          throw new Error('Missing required field: id');
+        }
+        if (!importedConfig.name) {
+          throw new Error('Missing required field: name');
+        }
+        if (!Array.isArray(importedConfig.channels)) {
+          throw new Error('Invalid or missing channels array');
+        }
+
+        // Создаем новый виджет с уникальным ID
+        const newItem: WidgetConfig = {
           ...importedConfig,
           id: 'w-' + Math.random().toString(36).substr(2, 9),
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          name: importedConfig.name + ' (Imported)'
         };
+
+        console.log('Import: Successfully parsed config:', newItem.name);
+
         const updated = [...widgets, newItem];
         setWidgets(updated);
         setActiveWidget(newItem);
         saveWidgets(updated);
-        alert('Project imported successfully!');
+
+        alert(`✅ Project "${importedConfig.name}" imported successfully!`);
       } catch (err) {
         console.error('Import Error:', err);
-        alert('Failed to import project. Please ensure it is a valid JSON configuration.');
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        alert(`❌ Failed to import project.\n\nReason: ${errorMessage}\n\nPlease ensure you are importing a valid Hub project JSON file.`);
+      } finally {
+        // Сброс input для возможности повторного выбора того же файла
+        e.target.value = '';
       }
     };
-    e.target.value = '';
+
+    reader.readAsText(file);
   };
 
   // --- ГЕНЕРАТОР КОДА: ПОЛНОСТЬЮ СИНХРОНИЗИРОВАННЫЙ С WIDGET.TSX ---
@@ -325,7 +376,7 @@ const AdminPanel: FC = () => {
                     
                     <div class="space-y-3">
                         <div id="hub-input-container"></div>
-                        <textarea id="hub-message" rows="3" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="How can we help?"></textarea>
+                        \${config.showMessageField !== false ? \`<textarea id="hub-message" rows="3" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="\${config.messagePlaceholder || 'How can we help?'}"></textarea>\` : ''}
                         <button id="hub-send-btn" class="w-full py-4 rounded-xl text-white font-black text-sm uppercase tracking-widest shadow-xl hover:shadow-2xl hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3"
                                 style="background:\${config.backgroundType === 'gradient' ? config.themeGradient : config.themeColor}; margin-top: 1rem; border-radius:\${panelStyle === 'brutalist' ? '0' : '0.75rem'}; border:\${panelStyle === 'brutalist' ? '3px solid black' : 'none'}; color:\${triggerIconColor}">
                             <span>Submit Now</span>
@@ -424,10 +475,17 @@ const AdminPanel: FC = () => {
                 var suffix = suffixEl ? suffixEl.innerText : '';
                 
                 var fullContact = prefix + rawValue + suffix;
-                var message = document.getElementById('hub-message').value;
+                var messageEl = document.getElementById('hub-message');
+                var message = messageEl ? messageEl.value : '';
+                var showMessageField = config.showMessageField !== false;
 
-                if(!rawValue || !message) {
-                    alert('Please fill in all fields');
+                if(!rawValue) {
+                    alert('Please enter your contact info');
+                    return;
+                }
+                
+                if(showMessageField && !message.trim()) {
+                    alert('Please enter a message');
                     return;
                 }
 
@@ -436,7 +494,8 @@ const AdminPanel: FC = () => {
                 sendBtn.disabled = true;
 
                 try {
-                    var text = \`🔥 <b>New Lead from Website</b>\\n\\n📣 <b>Channel:</b> \${currentChannel.toUpperCase()}\\n👤 <b>Contact:</b> \${fullContact}\\n💬 <b>Message:</b> \${message}\`;
+                    var messageSection = (showMessageField && message) ? ('\\n💬 <b>Message:</b> ' + message) : '';
+                    var text = \`🔥 <b>New Lead from Website</b>\\n\\n📣 <b>Channel:</b> \${currentChannel.toUpperCase()}\\n👤 <b>Contact:</b> \${fullContact}\${messageSection}\`;
                     
                     var response = await fetch("https://api.telegram.org/bot" + config.botToken + "/sendMessage", {
                         method: 'POST',
@@ -631,6 +690,45 @@ const AdminPanel: FC = () => {
                           <input type="range" min="1" max="5" step="1" value={activeWidget.descriptionRows || 2} onChange={(e) => updateActiveWidget({ descriptionRows: parseInt(e.target.value) })} className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600" />
                         </div>
                       </div>
+                    </div>
+
+                    {/* Message Field Settings */}
+                    <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+                      <div className="flex items-center justify-between mb-6">
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">Message Field</label>
+                        <button
+                          onClick={() => updateActiveWidget({ showMessageField: !activeWidget.showMessageField })}
+                          className={`w-12 h-7 rounded-full transition-all relative ${activeWidget.showMessageField !== false ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                        >
+                          <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${activeWidget.showMessageField !== false ? 'right-1' : 'left-1'}`}></div>
+                        </button>
+                      </div>
+
+                      {activeWidget.showMessageField !== false && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Placeholder Text</label>
+                            <input
+                              type="text"
+                              value={activeWidget.messagePlaceholder || 'How can we help?'}
+                              onChange={(e) => updateActiveWidget({ messagePlaceholder: e.target.value })}
+                              className="w-full px-4 py-3 bg-slate-50 border border-slate-100 rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-sm"
+                              placeholder="Enter placeholder text..."
+                            />
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-relaxed">
+                            <i className="fa-solid fa-info-circle mr-1"></i>
+                            When enabled, users can write a message along with their contact info.
+                          </p>
+                        </div>
+                      )}
+
+                      {activeWidget.showMessageField === false && (
+                        <p className="text-[10px] text-slate-400 leading-relaxed">
+                          <i className="fa-solid fa-eye-slash mr-1"></i>
+                          Message field is hidden. Users will only provide contact info.
+                        </p>
+                      )}
                     </div>
 
                     <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
@@ -853,8 +951,8 @@ const AdminPanel: FC = () => {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 };
 

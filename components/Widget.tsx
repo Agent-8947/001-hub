@@ -24,6 +24,7 @@ const Widget: FC<WidgetProps> = ({ config: propConfig, isPreview = false }) => {
   const [step, setStep] = useState(1);
   const [selectedChannel, setSelectedChannel] = useState<ChannelType | null>(null);
   const [inputValue, setInputValue] = useState('');
+  const [messageValue, setMessageValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,12 +119,18 @@ const Widget: FC<WidgetProps> = ({ config: propConfig, isPreview = false }) => {
 
   const handleSubmit = async () => {
     if (!selectedChannel || !inputValue || inputValue === '@') return;
+    // Если поле сообщения включено, но пустое - не отправляем
+    if (config.showMessageField !== false && !messageValue.trim()) {
+      setError('Please enter a message');
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     const finalVal = formatFinalValue(selectedChannel, inputValue);
+    const message = config.showMessageField !== false ? messageValue : '';
     try {
       if (config.botToken && config.chatId && !isPreview) {
-        await sendTelegramMessage(config.botToken, config.chatId, config.name, selectedChannel, finalVal);
+        await sendTelegramMessage(config.botToken, config.chatId, config.name, selectedChannel, finalVal, message);
       } else {
         await simulateTelegramSubmission(config.name, selectedChannel, finalVal);
       }
@@ -140,6 +147,7 @@ const Widget: FC<WidgetProps> = ({ config: propConfig, isPreview = false }) => {
     setStep(1);
     setSelectedChannel(null);
     setInputValue('');
+    setMessageValue('');
     setIsSuccess(false);
     setError(null);
   };
@@ -257,6 +265,24 @@ const Widget: FC<WidgetProps> = ({ config: propConfig, isPreview = false }) => {
                     placeholder={config.channels.find(c => c.type === selectedChannel)?.placeholder}
                   />
                 </div>
+
+                {/* Message field - conditionally rendered */}
+                {config.showMessageField !== false && (
+                  <div className="mt-3">
+                    <textarea
+                      rows={3}
+                      value={messageValue}
+                      onChange={(e) => setMessageValue(e.target.value)}
+                      placeholder={config.messagePlaceholder || 'How can we help?'}
+                      className={`w-full px-4 py-3 rounded-xl text-sm outline-none transition-all resize-none ${panelStyle === 'dark'
+                          ? 'bg-slate-800 border-slate-700 text-white placeholder-slate-500 focus:ring-2 focus:ring-indigo-500'
+                          : panelStyle === 'brutalist'
+                            ? 'bg-white border-[2px] border-black focus:ring-0'
+                            : 'bg-slate-50 border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-500'
+                        }`}
+                    />
+                  </div>
+                )}
 
                 {error && (
                   <p className="text-red-500 text-xs mt-3 font-medium flex items-center gap-1">
